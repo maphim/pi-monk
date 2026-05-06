@@ -1,7 +1,7 @@
 {
 	"name": "pi-monk",
 	"version": "1.0.0",
-	"description": "🧘 pi coding agent extension — AAAK compress + Token Austerity Directives. 0 API cost, 0ms latency.",
+	"description": "Monk Pi — any-language→EN + AAAK+ compression. 0-cost token austerity.",
 	"type": "module",
 	"scripts": {
 		"test": "node --experimental-strip-types --test test/*.test.ts",

@@ -68,22 +68,25 @@ export default function (pi: ExtensionAPI) {
 			userLang = "en";
 		}
 
-		// Stage 2: AAAK compress translated EN text
+		// Stage 2: AAAK compress translated EN text — use if shorter
 		const comp = compressAAAK(text);
-		if (comp !== text && comp.length > 0) {
-			const saved = Math.ceil((event.text.length - comp.length) / 4);
-			if (saved > 5) {
-				stats.compressed++;
-				stats.tokensSaved += saved;
-				stats.origChars += event.text.length;
-				stats.compChars += comp.length;
-				if (ctx.hasUI)
-					ctx.ui.notify?.(`🧘 Monk -${compressionRatio(event.text, comp)} (${saved} tok)`, "info");
-				updateWidget(ctx);
-			}
-			return { action: "transform" as const, text: comp };
+		if (comp !== text && comp.length > 0 && comp.length < text.length) {
+			text = comp;
 		}
-		// Translate changed text but compress no-op → send translated anyway
+
+		// Compare original vs final (translated+compressed) for stats
+		const saved = Math.ceil((event.text.length - text.length) / 4);
+		if (saved > 0) {
+			stats.compressed++;
+			stats.tokensSaved += saved;
+			stats.origChars += event.text.length;
+			stats.compChars += text.length;
+			if (ctx.hasUI)
+				ctx.ui.notify?.(`🧘 Monk -${compressionRatio(event.text, text)} (${saved} tok)`, "info");
+			updateWidget(ctx);
+		}
+
+		// Transform only if output differs from input
 		if (text !== event.text) {
 			return { action: "transform" as const, text };
 		}
