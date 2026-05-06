@@ -78,10 +78,7 @@ export default function (pi: ExtensionAPI) {
 				stats.origChars += event.text.length;
 				stats.compChars += comp.length;
 				if (ctx.hasUI)
-					ctx.ui.notify?.(
-						`🧘 Monk -${compressionRatio(event.text, comp)} (${saved} tok)`,
-						"info",
-					);
+					ctx.ui.notify?.(`🧘 Monk -${compressionRatio(event.text, comp)} (${saved} tok)`, "info");
 				updateWidget(ctx);
 			}
 			return { action: "transform" as const, text: comp };
@@ -93,15 +90,14 @@ export default function (pi: ExtensionAPI) {
 		return { action: "continue" as const };
 	});
 
-	pi.on("message_end", async (event, _ctx) => {
+	pi.on("message_end", async (event, ctx) => {
 		if (event.message.role !== "assistant") return;
-		if (userLang === "en") return; // no translation needed
+		if (userLang === "en") return;
 
 		const content = event.message.content;
 		const blocks = extractTextBlocks(content);
 		if (blocks.length === 0) return;
 
-		// Only translate text blocks without code
 		const toTranslate = blocks.filter((b) => !hasCodeBlock(b.text));
 		if (toTranslate.length === 0) return;
 
@@ -115,6 +111,7 @@ export default function (pi: ExtensionAPI) {
 					contentArr[b.idx] = { ...(contentArr[b.idx] as object), text: t };
 					changed = true;
 					stats.translatedOut++;
+					updateWidget(ctx);
 				}
 			} catch {
 				/* skip on failure */
@@ -155,8 +152,7 @@ export default function (pi: ExtensionAPI) {
 			if (stats.translatedIn) parts.push(`${stats.translatedIn} in`);
 			if (stats.translatedOut) parts.push(`${stats.translatedOut} out`);
 			if (stats.tokensSaved) parts.push(`~${stats.tokensSaved} tok`);
-			if (ctx.hasUI)
-				ctx.ui.notify?.(`🧘 pi-monk: ${parts.join(", ")}`, "info");
+			if (ctx.hasUI) ctx.ui.notify?.(`🧘 pi-monk: ${parts.join(", ")}`, "info");
 		}
 		if (ctx.hasUI) {
 			ctx.ui.setWidget?.("pi-monk", undefined);
