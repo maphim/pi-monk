@@ -1,13 +1,14 @@
 /**
  * Monk Pi — Token Austerity Extension
  *
- * input→AAAK compress→LLM. No translation.
- * Multi-lingual LLMs handle language natively.
- * Zero API calls, zero latency, zero cost.
+ * input: 🌐→EN translate → AAAK compress → LLM
+ * output: LLM replies natively (no translate)
+ * Google Translate API, 0 cost, ~0.5s latency on non-EN.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { compressAAAK, compressionRatio } from "./compress.js";
+import { needsTranslation, translate } from "./translate.js";
 
 const LABEL = "🧘 Monk";
 
@@ -45,20 +46,38 @@ export default function (pi: ExtensionAPI) {
 		if (!event.text || event.text.startsWith("/") || event.text.length < 8)
 			return { action: "continue" as const };
 
-		const orig = event.text;
-		const comp = compressAAAK(orig);
-		if (comp !== orig && comp.length > 0) {
-			const saved = Math.ceil((orig.length - comp.length) / 4);
+		// Stage 1: translate non-EN → EN (for better AAAK compression)
+		let text = event.text;
+		if (needsTranslation(text)) {
+			try {
+				const t = await translate(text, "auto", "en");
+				if (t && t !== text) text = t;
+			} catch {
+				/* fallback — keep original */
+			}
+		}
+
+		// Stage 2: AAAK compress translated EN text
+		const comp = compressAAAK(text);
+		if (comp !== text && comp.length > 0) {
+			const saved = Math.ceil((event.text.length - comp.length) / 4);
 			if (saved > 5) {
 				stats.compressed++;
 				stats.tokensSaved += saved;
-				stats.origChars += orig.length;
+				stats.origChars += event.text.length;
 				stats.compChars += comp.length;
 				if (ctx.hasUI)
-					ctx.ui.notify?.(`🧘 Monk -${compressionRatio(orig, comp)} (${saved} tok)`, "info");
+					ctx.ui.notify?.(
+						`🧘 Monk -${compressionRatio(event.text, comp)} (${saved} tok)`,
+						"info",
+					);
 				updateWidget(ctx);
 			}
 			return { action: "transform" as const, text: comp };
+		}
+		// Translate changed text but compress no-op → send translated anyway
+		if (text !== event.text) {
+			return { action: "transform" as const, text };
 		}
 		return { action: "continue" as const };
 	});
