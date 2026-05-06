@@ -145,6 +145,10 @@ export default function (pi: ExtensionAPI) {
 		}
 	});
 
+	pi.on("turn_end", async (_e, ctx) => {
+		updateWidget(ctx);
+	});
+
 	pi.on("session_shutdown", async (_e, ctx) => {
 		if (stats.compressed > 0 || stats.translatedIn > 0 || stats.translatedOut > 0) {
 			const parts: string[] = [];
