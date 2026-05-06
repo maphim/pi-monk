@@ -1,14 +1,15 @@
 /**
  * Monk Pi — Token Austerity Extension
  *
- * input: 🌐→EN translate → AAAK compress → LLM
- * output: LLM replies natively (no translate)
- * Google Translate API, 0 cost, ~0.5s latency on non-EN.
+ * input:  🌐→EN translate → AAAK compress → LLM
+ * output: LLM replies EN → 🌐 translate to user's language
+ * Google Translate API, 0 cost, ~0.5s latency per direction.
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { compressAAAK, compressionRatio } from "./compress.js";
-import { needsTranslation, translate } from "./translate.js";
+import { needsTranslation, translateAndDetect, translate } from "./translate.js";
+import { extractTextBlocks, hasCodeBlock } from "./utils.js";
 
 const LABEL = "🧘 Monk";
 
@@ -17,7 +18,11 @@ const stats = {
 	tokensSaved: 0,
 	origChars: 0,
 	compChars: 0,
+	translatedIn: 0,
+	translatedOut: 0,
 };
+
+let userLang = "vi"; // detected user language, default VN
 
 interface MonkCtx {
 	ui: {
@@ -46,15 +51,21 @@ export default function (pi: ExtensionAPI) {
 		if (!event.text || event.text.startsWith("/") || event.text.length < 8)
 			return { action: "continue" as const };
 
-		// Stage 1: translate non-EN → EN (for better AAAK compression)
+		// Stage 1: detect language + translate to EN
 		let text = event.text;
 		if (needsTranslation(text)) {
 			try {
-				const t = await translate(text, "auto", "en");
-				if (t && t !== text) text = t;
+				const r = await translateAndDetect(text, "en");
+				if (r.text !== text) {
+					text = r.text;
+					if (r.detected !== "en") userLang = r.detected;
+					stats.translatedIn++;
+				}
 			} catch {
 				/* fallback — keep original */
 			}
+		} else {
+			userLang = "en";
 		}
 
 		// Stage 2: AAAK compress translated EN text
@@ -82,6 +93,39 @@ export default function (pi: ExtensionAPI) {
 		return { action: "continue" as const };
 	});
 
+	pi.on("message_end", async (event, _ctx) => {
+		if (event.message.role !== "assistant") return;
+		if (userLang === "en") return; // no translation needed
+
+		const content = event.message.content;
+		const blocks = extractTextBlocks(content);
+		if (blocks.length === 0) return;
+
+		// Only translate text blocks without code
+		const toTranslate = blocks.filter((b) => !hasCodeBlock(b.text));
+		if (toTranslate.length === 0) return;
+
+		const contentArr = [...(Array.isArray(content) ? content : [])];
+		let changed = false;
+
+		for (const b of toTranslate) {
+			try {
+				const t = await translate(b.text, "en", userLang);
+				if (t && t !== b.text) {
+					contentArr[b.idx] = { ...(contentArr[b.idx] as object), text: t };
+					changed = true;
+					stats.translatedOut++;
+				}
+			} catch {
+				/* skip on failure */
+			}
+		}
+
+		if (changed) {
+			return { message: { ...event.message, content: contentArr } };
+		}
+	});
+
 	pi.on("before_agent_start", async (event) => ({
 		systemPrompt:
 			event.systemPrompt +
@@ -97,19 +141,22 @@ export default function (pi: ExtensionAPI) {
 	}));
 
 	pi.on("session_start", async (_e, ctx) => {
+		userLang = "vi";
 		if (ctx.hasUI) {
 			updateWidget(ctx);
-			ctx.ui.notify?.("🧘 Monk mode active — AAAK compress + austerity", "info");
+			ctx.ui.notify?.("🧘 Monk mode active — translate + AAAK compress", "info");
 		}
 	});
 
 	pi.on("session_shutdown", async (_e, ctx) => {
-		if (stats.compressed > 0) {
+		if (stats.compressed > 0 || stats.translatedIn > 0 || stats.translatedOut > 0) {
+			const parts: string[] = [];
+			if (stats.compressed) parts.push(`${stats.compressed} comp`);
+			if (stats.translatedIn) parts.push(`${stats.translatedIn} in`);
+			if (stats.translatedOut) parts.push(`${stats.translatedOut} out`);
+			if (stats.tokensSaved) parts.push(`~${stats.tokensSaved} tok`);
 			if (ctx.hasUI)
-				ctx.ui.notify?.(
-					`🧘 pi-monk: ${stats.compressed} comp, ~${stats.tokensSaved} tok saved`,
-					"info",
-				);
+				ctx.ui.notify?.(`🧘 pi-monk: ${parts.join(", ")}`, "info");
 		}
 		if (ctx.hasUI) {
 			ctx.ui.setWidget?.("pi-monk", undefined);

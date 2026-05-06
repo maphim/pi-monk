@@ -62,15 +62,52 @@ export async function translate(text: string, from = "auto", to = "en"): Promise
 	const t = setTimeout(() => ctrl.abort(), 5000);
 	try {
 		const res = await fetch(url, { signal: ctrl.signal });
-		const d = JSON.parse(await res.text()) as Array<Array<[string]>>;
+		const d = JSON.parse(await res.text()) as any[];
 		return (
-			d[0]
-				?.map((s) => s[0])
+			(d[0] as Array<Array<string>>)
+				?.map((s: any) => s[0])
 				.filter(Boolean)
 				.join("") ?? text
 		);
 	} catch {
 		return text;
+	} finally {
+		clearTimeout(t);
+	}
+}
+
+/**
+ * Translate + detect source language.
+ * Returns both translated text and detected language code.
+ */
+export async function translateAndDetect(
+	text: string,
+	to = "en",
+): Promise<{ text: string; detected: string }> {
+	if (!text.trim()) return { text, detected: "en" };
+	const url = `https://translate.googleapis.com/translate_a/single?${new URLSearchParams({
+		client: "gtx",
+		sl: "auto",
+		tl: to,
+		hl: to,
+		dt: "t",
+		q: text,
+		tk: ch(text, TKK),
+	})}`;
+	const ctrl = new AbortController();
+	const t = setTimeout(() => ctrl.abort(), 5000);
+	try {
+		const res = await fetch(url, { signal: ctrl.signal });
+		const d = JSON.parse(await res.text()) as any[];
+		const detected = (d[2] as string) || "en";
+		const translated =
+			(d[0] as Array<Array<string>>)
+				?.map((s: any) => s[0])
+				.filter(Boolean)
+				.join("") ?? text;
+		return { text: translated, detected };
+	} catch {
+		return { text, detected: "en" };
 	} finally {
 		clearTimeout(t);
 	}
